@@ -164,9 +164,9 @@ def calcMangNDVIMangPxlFromCube(tileNCFile, tileNCAMCFile, tileNCCMCFile, tileAF
             tileNCCMCFileOut = tileNCCMCFile+'_'+str(yearVal)+'.nc'
             tileNCFileOut = tileNCFile+'_'+str(yearVal)+'.nc'
             
-            xarray_to_cfnetcdf(data_xarray=mangroveAreaPxlC.sel(year=yearVal), output_nc_file=tileNCAMCFileOut, variable_name='ndvi'+str(yearVal), crs=crs)           
-            xarray_to_cfnetcdf(data_xarray=clMangroveAreaPxlC.sel(year=yearVal), output_nc_file=tileNCCMCFileOut, variable_name='ndvi'+str(yearVal), crs=crs)
-            xarray_to_cfnetcdf(data_xarray=mangroveNDVIMean.sel(year=yearVal), output_nc_file=tileNCFileOut, variable_name='ndvi'+str(yearVal), crs=crs)            
+            xarray_to_cfnetcdf(mangroveAreaPxlC.sel(year=yearVal), tileNCAMCFileOut, 'ndvi'+str(yearVal), crs)
+            xarray_to_cfnetcdf(clMangroveAreaPxlC.sel(year=yearVal), tileNCCMCFileOut, 'ndvi'+str(yearVal), crs)
+            xarray_to_cfnetcdf(mangroveNDVIMean.sel(year=yearVal), tileNCFileOut, 'ndvi'+str(yearVal), crs)
 
 
 if __name__ == '__main__':
