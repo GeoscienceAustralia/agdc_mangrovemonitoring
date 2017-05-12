@@ -1,4 +1,4 @@
-# Extract_AnnualNDVI_Tiles.py
+# Calc_AnnualFCPV_Tiles.py
 
 import datacube
 import numpy
@@ -12,13 +12,13 @@ import pandas
 from datacube.storage.storage import write_dataset_to_netcdf
 
 
-def xarray_to_cfnetcdf(data_xarray, output_nc_file, variable_name, crs):
+def xarray_to_cfnetcdf(data_xarray, output_nc_file, variable_name, crs, year):
     # Data Cube friendly dataset, copy booleans to int8 as bool is not supported        
     dcf_ds = data_xarray.astype('int8', copy=False).to_dataset(name = variable_name)
     # set a valid crs object, DC relies upon the python object so a WKT representation of CRS will fail
     dcf_ds.attrs['crs'] = crs
     # Set units for year coordinate
-    dcf_ds.coords['year'].attrs['units'] = 'years since 0'
+    dcf_ds.coords['time'].attrs['units'] = 'year of annual composite'    
     # Set units for data variable
     dcf_ds.data_vars[variable_name].attrs['units'] = 1
     # write dataset out using datacube storage method - this is an unfortunate nessicity and we should expose a
@@ -145,35 +145,12 @@ def calc_mang_fcpv(threshold, mangrove, pixel_count, min_lat, max_lat, min_lon, 
 
             num_mang_pxls = numpy.sum(mangrove_pv_threshold.sel(time=datetimeVal).data)
 
-            pxlCountSeries = pandas.Series([num_mang_pxls], index=['MangPxls'])
+            pixel_count_series = pandas.Series([num_mang_pxls], index=['MangPxls'])
             pixel_count_out = pixel_count+'_'+str(year_value)+'.csv'
-            pxlCountSeries.to_csv(pixel_count_out)
+            pixel_count_series.to_csv(pixel_count_out)
 
             threshold_out = threshold+'_'+str(year_value)+'.nc'
             mangrove_out = mangrove+'_'+str(year_value)+'.nc'
 
-            xarray_to_cfnetcdf(mangrove_pv_threshold.sel(time=datetimeVal), threshold_out, 'PV'+str(year_value), crs)
-            xarray_to_cfnetcdf(mangrove_annual.sel(time=datetimeVal), mangrove_out, 'PV'+str(year_value), crs)
-
-
-if __name__ == '__main__':
-    mangrove, threshold, pixel_count, min_lat, max_lat, min_lon, max_lon, mangrove_ext, pv_threshold = None
-    parser = argparse.ArgumentParser(
-        prog='Calc_AnnualFCPV_Tiles.py',
-        description='''Produce an annual mangrove FCPV composite and count of pixels within mangrove regions.'''
-    )
-    parser.add_argument("--threshold", type=str, required=True, help='Output netcdf for the mangrove PV threshold')
-    parser.add_argument("--mangrove", type=str, required=True, help='Output netcdf of mangrove mask.')
-    parser.add_argument("--pixel_count", type=str, required=True,
-                        help='Output text file with pixel counts of mangrove area.')
-    parser.add_argument("--min_lat", type=float, required=True, help='min. lat for tile region.')
-    parser.add_argument("--max_lat", type=float, required=True, help='max. lat for tile region.')
-    parser.add_argument("--min_lon", type=float, required=True, help='min. lon for tile region.')
-    parser.add_argument("--max_lon", type=float, required=True, help='max. lon for tile region.')
-    parser.add_argument("--mangrove_ext", type=str, required=True, help='Location of mangrove extent shape file.')
-    parser.add_argument("--pv_threshold", type=float, required=True, help='Configurable PV threshold.')
-    
-    # Call the parser to parse the arguments.
-    args = parser.parse_args()
-
-    calc_mang_fcpv(threshold, mangrove, pixel_count, min_lat, max_lat, min_lon, max_lon, mangrove_ext, pv_threshold)
+            xarray_to_cfnetcdf(mangrove_pv_threshold.sel(time=datetimeVal), threshold_out, 'PV', crs, str(year_value))
+            xarray_to_cfnetcdf(mangrove_annual.sel(time=datetimeVal), mangrove_out, 'PV', crs, str(year_value))
