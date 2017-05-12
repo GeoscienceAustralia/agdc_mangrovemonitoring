@@ -26,13 +26,17 @@
 *.sql
 *.sqlite
 
+# IDE generated files #
+#######################
+.idea
+
 # OS generated files #
 ######################
 .DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
-.Trashes
+i.Trashes
 ehthumbs.db
 Thumbs.db
 
