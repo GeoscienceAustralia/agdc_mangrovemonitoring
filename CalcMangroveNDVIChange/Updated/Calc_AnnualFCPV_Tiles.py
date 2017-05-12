@@ -136,7 +136,7 @@ def calc_mang_fcpv(threshold, mangrove, pixel_count, min_lat, max_lat, min_lon, 
         mangrove_annual = (annual.PV.where(gmw_mask_array == 1))
         
         print("Apply thresholds to FCPV to find total mangrove mask.")
-        mangrove_pv_threshold = mangrove_annual>pv_threshold
+        mangrove_pv_threshold = mangrove_annual > pv_threshold
         
         print("Calculate the number of pixels within the mangrove mask and write to CSV file.")
 
@@ -154,3 +154,26 @@ def calc_mang_fcpv(threshold, mangrove, pixel_count, min_lat, max_lat, min_lon, 
 
             xarray_to_cfnetcdf(mangrove_pv_threshold.sel(time=datetimeVal), threshold_out, 'PV', crs, str(year_value))
             xarray_to_cfnetcdf(mangrove_annual.sel(time=datetimeVal), mangrove_out, 'PV', crs, str(year_value))
+
+
+if __name__ == '__main__':
+    mangrove, threshold, pixel_count, min_lat, max_lat, min_lon, max_lon, mangrove_ext, pv_threshold = None
+    parser = argparse.ArgumentParser(
+        prog='Calc_AnnualFCPV_Tiles.py',
+        description='''Produce an annual mangrove FCPV composite and count of pixels within mangrove regions.'''
+    )
+    parser.add_argument("--threshold", type=str, required=True, help='Output netcdf for the mangrove PV threshold')
+    parser.add_argument("--mangrove", type=str, required=True, help='Output netcdf of mangrove mask.')
+    parser.add_argument("--pixel_count", type=str, required=True,
+                        help='Output text file with pixel counts of mangrove area.')
+    parser.add_argument("--min_lat", type=float, required=True, help='min. lat for tile region.')
+    parser.add_argument("--max_lat", type=float, required=True, help='max. lat for tile region.')
+    parser.add_argument("--min_lon", type=float, required=True, help='min. lon for tile region.')
+    parser.add_argument("--max_lon", type=float, required=True, help='max. lon for tile region.')
+    parser.add_argument("--mangrove_ext", type=str, required=True, help='Location of mangrove extent shape file.')
+    parser.add_argument("--pv_threshold", type=float, required=True, help='Configurable PV threshold.')
+
+    # Call the parser to parse the arguments.
+    args = parser.parse_args()
+
+    calc_mang_fcpv(threshold, mangrove, pixel_count, min_lat, max_lat, min_lon, max_lon, mangrove_ext, pv_threshold)
