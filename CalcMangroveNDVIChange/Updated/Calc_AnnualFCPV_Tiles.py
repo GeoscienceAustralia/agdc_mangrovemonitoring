@@ -37,12 +37,12 @@ def pq_fuser(dest, src):
     both_data_mask = (valid_val & dest & src).astype(bool)
     numpy.copyto(dest, src & dest, where=both_data_mask)
 
-def calcMangNDVIMangPxlFromCube(tileNCFile, tileNCAMCFile, tileNCCMCFile, tileAFile, minLat, maxLat, minLon, maxLon, mangShpExt, ndviThresLow, ndviThresHigh):
+def calcMangFCPVMangPxlFromCube(tileNCFile, tileNCAMCFile, tileAFile, minLat, maxLat, minLon, maxLon, mangShpExt, pv_thresh):
 
     dc = datacube.Datacube(app='CalcAnnualMangroveExtent')
     
     #Define wavelengths/bands of interest, remove this kwarg to retrieve all bands
-    bands_of_interest = ['red', 'nir']
+    bands_of_interest = ['PV']
     
     #Define sensors of interest
     sensors = ['ls8', 'ls7', 'ls5']
@@ -74,36 +74,27 @@ def calcMangNDVIMangPxlFromCube(tileNCFile, tileNCAMCFile, tileNCCMCFile, tileAF
     sensor_clean = {}
     for sensor in sensors:
         print(sensor)
-        #Load the NBAR and corresponding PQ
-        sensor_nbar = dc.load(product=sensor+'_nbar_albers', group_by='solar_day', measurements=bands_of_interest, **query)
-        if bool(sensor_nbar):
+        #Load the FC and corresponding PQ
+        sensor_fc = dc.load(product=sensor+'_fc_albers', group_by='solar_day', measurements=bands_of_interest, **query)
+        if bool(sensor_fc):
             sensor_pq = dc.load(product=sensor+'_pq_albers', group_by='solar_day', fuse_func=pq_fuser, **query)
             # Get the projection info
-            crs = sensor_nbar.crs
-            affine = sensor_nbar.affine
-            # Apply the PQ masks to the NBAR
+            crs = sensor_fc.crs
+            affine = sensor_fc.affine
+            # Apply the PQ masks to the FC
             cloud_free = masking.make_mask(sensor_pq, **mask_components)
             good_data = cloud_free.pixelquality.loc[start_of_epoch:end_of_epoch]
-            sensor_nbar = sensor_nbar.where(good_data)
-            sensor_clean[sensor] = sensor_nbar
+            sensor_fc = sensor_fc.where(good_data)
+            sensor_clean[sensor] = sensor_fc
     
     if bool(sensor_clean):
         print("Merge data from different sensors.")
-        nbar_clean = xarray.concat(sensor_clean.values(), dim='time')
-        time_sorted = nbar_clean.time.argsort()
-        nbar_clean = nbar_clean.isel(time=time_sorted)
-                
-        print("\'Clean\' up the Red and NIR bands to remove any values less than zero.")
-        nbar_clean['red'] = nbar_clean.red.where(nbar_clean.red>0)
-        nbar_clean['nir'] = nbar_clean.nir.where(nbar_clean.nir>0)
-        
-        print("Calculate NDVI.")
-        ndvi = ((nbar_clean.nir-nbar_clean.red)/(nbar_clean.nir+nbar_clean.red))
+        fc_clean = xarray.concat(sensor_clean.values(), dim='time')
+        time_sorted = fc_clean.time.argsort()
+        fc_clean = fc_clean.isel(time=time_sorted)
         
         print("Create Composite")
-        #Calculate annual average NDVI values
-        ndviAnnual = ndvi.groupby('time.year')
-        ndviMean = ndviAnnual.mean(dim = 'time')
+        annual = fc_clean.resample('A', dim='time', how='median', keep_attrs=True)
         
         print("Rasterise the GMW extent map for the area of interest.")
         # Define pixel size and NoData value of new raster
@@ -112,8 +103,8 @@ def calcMangNDVIMangPxlFromCube(tileNCFile, tileNCAMCFile, tileNCCMCFile, tileAF
         noDataVal = -9999
         
         # Set the geotransform properties
-        xcoord = ndviMean.coords['x'].min()
-        ycoord = ndviMean.coords['y'].max()
+        xcoord = annual.coords['x'].min()
+        ycoord = annual.coords['y'].max()
         geotransform = (xcoord - (xres*0.5), xres, 0, ycoord + (yres*0.5), 0, yres)
         
         # Open the data source and read in the extent
@@ -123,7 +114,7 @@ def calcMangNDVIMangPxlFromCube(tileNCFile, tileNCAMCFile, tileNCCMCFile, tileAF
         vx_min, vx_max, vy_min, vy_max = source_layer.GetExtent() # This is extent of Australia
         
         # Create the destination extent
-        yt,xt = ndviMean.sel(year=2010).shape
+        yt,xt = annual.PV.isel(time=1).shape
         
         # Set up 'in-memory' gdal image to rasterise the shapefile too
         target_ds = gdal.GetDriverByName('MEM').Create('', xt, yt, gdal.GDT_Byte)
@@ -141,53 +132,47 @@ def calcMangNDVIMangPxlFromCube(tileNCFile, tileNCAMCFile, tileNCCMCFile, tileAF
         gmwMaskArr = band.ReadAsArray()
         
         
-        print("Apply the GMW Mask to the NDVI values")
-        mangroveNDVIMean = ndviMean.where(gmwMaskArr == 1)
+        print("Apply the GMW Mask to the FCPV values")
+        mangroveannual = (annual.PV.where(gmwMaskArr == 1))
         
-        print("Apply thresholds to NDVI to find total mangrove mask and closed canopy mangrove mask.")
-        mangroveAreaPxlC = mangroveNDVIMean>ndviThresLow
-        clMangroveAreaPxlC = mangroveNDVIMean>ndviThresHigh
+        print("Apply thresholds to FCPV to find total mangrove mask.")
+        mangroveAreaPxlC = mangroveannual>pv_thresh
         
         print("Calculate the number of pixels within the mangrove mask and write to CSV file.")
         numMangPxls = numpy.sum(mangroveAreaPxlC.data)
-        numClMangPxls = numpy.sum(clMangroveAreaPxlC.data)
-        
-        years = [1987, 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016]
-        for yearVal in years:                
-            numMangPxls = numpy.sum(mangroveAreaPxlC.sel(year=yearVal).data)
-            numClMangPxls = numpy.sum(clMangroveAreaPxlC.sel(year=yearVal).data) 
-            pxlCountSeries = pandas.Series([numMangPxls, numClMangPxls], index=['MangPxls', 'MangPxlsCl'])
+
+        for datetimeVal in annual.time:
+            yearVal=datetimeVal['time.year'].data
+
+            numMangPxls = numpy.sum(mangroveAreaPxlC.sel(time=datetimeVal).data)
+
+            pxlCountSeries = pandas.Series([numMangPxls], index=['MangPxls'])
             tileAFileOut = tileAFile+'_'+str(yearVal)+'.csv'
-            pxlCountSeries.to_csv(tileAFileOut)   
+            pxlCountSeries.to_csv(tileAFileOut)
             
             tileNCAMCFileOut = tileNCAMCFile+'_'+str(yearVal)+'.nc'
-            tileNCCMCFileOut = tileNCCMCFile+'_'+str(yearVal)+'.nc'
             tileNCFileOut = tileNCFile+'_'+str(yearVal)+'.nc'
-            
-            xarray_to_cfnetcdf(mangroveAreaPxlC.sel(year=yearVal), tileNCAMCFileOut, 'ndvi'+str(yearVal), crs)
-            xarray_to_cfnetcdf(clMangroveAreaPxlC.sel(year=yearVal), tileNCCMCFileOut, 'ndvi'+str(yearVal), crs)
-            xarray_to_cfnetcdf(mangroveNDVIMean.sel(year=yearVal), tileNCFileOut, 'ndvi'+str(yearVal), crs)
+
+            xarray_to_cfnetcdf(mangroveAreaPxlC.sel(time=datetimeVal), tileNCAMCFileOut, 'PV'+str(yearVal), crs)           
+            xarray_to_cfnetcdf(mangroveannual.sel(time=datetimeVal), tileNCFileOut, 'PV'+str(yearVal), crs)
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(prog='Calc_AnnualNDVI_Tiles.py', description='''Produce an annual mangrove ndvi composite and count of pixels within mangrove regions.''')
+    parser = argparse.ArgumentParser(prog='Calc_AnnualFCPV_Tiles.py', description='''Produce an annual mangrove FCPV composite and count of pixels within mangrove regions.''')
 
     parser.add_argument("--tileNCFile", type=str, required=True, help='Output netcdf file.')    
-    parser.add_argument("--tileNCAMCFile", type=str, required=True, help='Output netcdf for the low mangrove threshold file.')
-    parser.add_argument("--tileNCCMCFile", type=str, required=True, help='Output netcdf for the high mangrove threshold file.')
+    parser.add_argument("--tileNCAMCFile", type=str, required=True, help='Output netcdf for the mangrove threshold file.')
     parser.add_argument("--tileAFile", type=str, required=True, help='Output text file with pixel counts of mangrove area.')
     parser.add_argument("--minlat", type=float, required=True, help='min. lat for tile region.')
     parser.add_argument("--maxlat", type=float, required=True, help='max. lat for tile region.')
     parser.add_argument("--minlon", type=float, required=True, help='min. lon for tile region.')
     parser.add_argument("--maxlon", type=float, required=True, help='max. lon for tile region.')
+    parser.add_argument("--mangExtShp", type=str, required=True, help='Location of mangrove extent shape file.')
+    parser.add_argumnet("--pvThresh", type=float, required=True, help='Configurable PV threshold.')
     
     # Call the parser to parse the arguments.
     args = parser.parse_args()
-    
-    gmwMangExtShp = '/g/data/r78/pjb552/gmwExtent/GMW_Australia_MangroveExtent2010_AlbersEA_shp.shp'
-    ndviThresLow = 0.4
-    ndviThresHigh = 0.6
-    
-    calcMangNDVIMangPxlFromCube(args.tileNCFile, args.tileNCAMCFile, args.tileNCCMCFile, args.tileAFile, args.minlat, args.maxlat, args.minlon, args.maxlon, gmwMangExtShp, ndviThresLow, ndviThresHigh)
+       
+    calcMangFCPVMangPxlFromCube(tileNCFile, tileNCAMCFile, tileAFile, minlat, maxlat, minlon, maxlon, gmwMangExtShp, pvThresh)
 
 
