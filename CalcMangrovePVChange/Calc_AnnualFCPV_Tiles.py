@@ -12,8 +12,9 @@ import pandas
 from datacube.storage.storage import write_dataset_to_netcdf
 
 
-def xarray_to_cfnetcdf(data_xarray, output_nc_file, variable_name, crs, year):
-    # Data Cube friendly dataset, copy booleans to int8 as bool is not supported        
+def xarray_to_cfnetcdf(data_xarray, output_nc_file, variable_name, crs, year, nodata_val=-1):
+    data_xarray = data_xarray.fillna(nodata_val)
+    # Data Cube friendly dataset, copy booleans to int8 as bool is not supported
     dcf_ds = data_xarray.astype('int8', copy=False).to_dataset(name = variable_name)
     # set a valid crs object, DC relies upon the python object so a WKT representation of CRS will fail
     dcf_ds.attrs['crs'] = crs
@@ -21,6 +22,7 @@ def xarray_to_cfnetcdf(data_xarray, output_nc_file, variable_name, crs, year):
     dcf_ds.coords['time'].attrs['units'] = 'year of annual composite'    
     # Set units for data variable
     dcf_ds.data_vars[variable_name].attrs['units'] = 1
+    dcf_ds.data_vars[variable_name].attrs['nodata'] = nodata_val
     # write dataset out using datacube storage method - this is an unfortunate nessicity and we should expose a
     # function like this in a nicer way
     write_dataset_to_netcdf(dcf_ds, output_nc_file)
@@ -136,7 +138,7 @@ def calc_mang_fcpv(threshold, mangrove, pixel_count, min_lat, max_lat, min_lon, 
         mangrove_annual = (annual.PV.where(gmw_mask_array == 1))
         
         print("Apply thresholds to FCPV to find total mangrove mask.")
-        mangrove_pv_threshold = mangrove_annual > pv_threshold
+        mangrove_pv_threshold = mangrove_annual.where(mangrove_annual>pv_threshold)
         
         print("Calculate the number of pixels within the mangrove mask and write to CSV file.")
 
